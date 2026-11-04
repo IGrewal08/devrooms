@@ -1,13 +1,14 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "Backend for devrooms application.",
+  "description": "Backend for devrooms application",
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "start": "npm index.js"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "pg": "^8.23.1",

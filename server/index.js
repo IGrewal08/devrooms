@@ -1,10 +1,12 @@
+const env = require('dotenv/config');
 const express = require('express');
+const cors = require('cors');
 
 const app = express();
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.cors({ origin: 'http://localhost:5173' }));
+app.use(express.json({ limit: '10kb' }));
 
 /**
  * Fetch rooms corresponding to this user from the database
