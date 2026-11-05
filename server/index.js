@@ -1,6 +1,7 @@
 const env = require('dotenv/config');
 const express = require('express');
 const cors = require('cors');
+const pool = require('db.config.js');
 
 const app = express();
 
@@ -11,7 +12,28 @@ app.use(express.json({ limit: '10kb' }));
 /**
  * Fetch rooms corresponding to this user from the database
  */
-app.get('/api/rooms', (req, res) => {});
+app.get('/api/rooms', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const rooms = await pool.query(
+      `SELECT * FROM rooms where user_id = ${userId}`,
+    );
+    if (rooms.rows === undefined) {
+      return res
+        .status(422)
+        .json({ message: 'Error: no rooms were found for this user.' });
+    }
+    res
+      .status(200)
+      .json({ data: rooms.rows, message: 'Rooms fetched successfully.' });
+  } catch (err) {
+    console.error('Issue fetching room for this user: ', err);
+    res.status(500).json({
+      message: 'Error: a issue occurred while trying to query your rooms.',
+      error: err,
+    });
+  }
+});
 
 /**
  * Insert a new room from this user into the database
