@@ -49,13 +49,15 @@ async function main() {
     if (userId === undefined || userName === undefined)
       throw new Error('Could not seed into users table.');
     const rooms = await client.query(
-      `INSERT INTO rooms (user_id, title, description) VALUES ('${userId}', 'Initial Room', 'Sample room description for the initial room.') RETURNING room_id;`,
+      `INSERT INTO rooms (user_id, title, description) VALUES ('$1', 'Initial Room', 'Sample room description for the initial room.') RETURNING room_id;`,
+      [userId],
     );
     const roomId = rooms[0];
     if (roomId === undefined)
       throw new Error('Could not seed into rooms table.');
     await query.query(
-      `INSERT INTO messages (room_id, poster_id, message) VALUES ('${roomId}', '${userId}', 'Initial message posted in room.');`,
+      `INSERT INTO messages (room_id, poster_id, message) VALUES ('$1', '$2', 'Initial message posted in room.');`,
+      [roomId, userId],
     );
     await await client.end();
     console.log('Completed Seeding.');

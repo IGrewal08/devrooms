@@ -15,9 +15,10 @@ app.use(express.json({ limit: '10kb' }));
 app.get('/api/rooms', async (req, res) => {
   try {
     const { userId } = req.body;
-    const rooms = await pool.query(
-      `SELECT * FROM rooms where user_id = ${userId}`,
-    );
+    userId = 1; // Temporary
+    const rooms = await pool.query(`SELECT * FROM rooms where user_id = $1`, [
+      userId,
+    ]);
     if (rooms.rows === undefined) {
       return res
         .status(422)
@@ -42,7 +43,8 @@ app.post('/api/rooms', async (req, res) => {
   try {
     const { userId, title, description } = req.body;
     const room = await pool.query(
-      `INSERT INTO rooms (user_id, title, description) VALUES (${userId}, ${title}, ${description})`,
+      `INSERT INTO rooms (user_id, title, description) VALUES ($1, $2, $3)`,
+      [userId, title, description],
     );
     if (room.rows === undefined) {
       return res
@@ -68,7 +70,8 @@ app.get('/api/rooms/:id/messages', async (req, res) => {
   try {
     const roomId = req.params.id;
     const messages = await pool.query(
-      `SELECT * FROM messages WHERE room_id = ${roomId}`,
+      `SELECT * FROM messages WHERE room_id = $1 INNER JOIN users ON posts.poster_id = users.user_id`,
+      [roomId],
     );
     if (messages.rows === undefined) {
       return res
@@ -97,7 +100,8 @@ app.post('/api/rooms/:id/messages', async (req, res) => {
     const roomId = req.params.id;
     const { userId, userMessage } = req.body;
     const message = await pool.query(
-      `INSERT INTO messages (room_id, poster_id, message) VALUES (${roomId}, ${userId}, ${userMessage})`,
+      `INSERT INTO messages (room_id, poster_id, message) VALUES ($1, $2, $3)`,
+      [roomId, userId, userMessage],
     );
     if (message.rows === undefined) {
       return res
