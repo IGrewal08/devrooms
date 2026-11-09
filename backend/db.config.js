@@ -1,17 +1,33 @@
-const pg = require('pg');
-const Pool = pg.Pool;
-const env = require('dotenv/config');
+require('dotenv/config');
+const { Pool } = require('pg');
 
-/**
- * Manage DB connections my limiting active users to 10, ideal users are kicked out of connection after 60 seconds.
- * Automatic opening and closing new connections
- */
-export default new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  max: 10,
-  idleTimeoutMillis: 60000,
-});
+const hasPostgresConfig = Boolean(
+    process.env.DB_CONNECTION_STRING || process.env.DB_HOST || process.env.DB_NAME
+);
+
+let pgPool = null;
+
+if (hasPostgresConfig) {
+    pgPool = new Pool(
+        process.env.DB_CONNECTION_STRING
+            ? {
+                connectionString: process.env.DB_CONNECTION_STRING,
+                max: 10,
+                idleTimeoutMillis: 60000
+            }
+            : {
+                user: process.env.DB_USER || 'postgres',
+                host: process.env.DB_HOST || 'localhost',
+                database: process.env.DB_NAME || 'devrooms',
+                password: process.env.DB_PASSWORD || '',
+                port: Number(process.env.DB_PORT) || 5432,
+                max: 10,
+                idleTimeoutMillis: 60000
+            }
+    );
+}
+
+module.exports = {
+    pgPool,
+    hasPostgresConfig
+};

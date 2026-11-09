@@ -1,11 +1,13 @@
 {
   "name": "server",
   "version": "1.0.0",
-  "description": "Backend for devrooms application",
+  "description": "Backend for devrooms application (Velocity Labs - Group 12)",
   "type": "commonjs",
   "main": "index.js",
   "scripts": {
-    "start": "npm index.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "seed": "node seed.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

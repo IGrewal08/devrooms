@@ -1,94 +1,188 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { API_BASE_URL } from './socket';
 
-export default function Sidebar({ handleChangeRoom }) {
-  const [rooms, setRooms] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [user, setUser] = useState('loading...');
-  const [newRoomName, setNewRoomName] = useState('');
+export default function Sidebar({
+    rooms,
+    setRooms,
+    currentRoom,
+    handleChangeRoom,
+    currentUser,
+    issuesCount,
+    onOpenModal
+}) {
+    const [newRoomName, setNewRoomName] = useState('');
+    const [newRoomScope, setNewRoomScope] = useState('ISOLATED');
 
-  // Fetch rooms and projects on initial mount
-  useEffect(() => {
-    fetch('http://localhost:4000/api/rooms/1/messages')
-      .then((res) => res.json())
-      .then((data) => setRooms(data))
-      .catch((err) => console.error(err));
+    const handleCreateRooms = async (e) => {
+        e.preventDefault();
+        if (!newRoomName.trim()) return;
 
-    fetch('') // TODO create project table in db
-      .then((res) => res.json())
-      .then((data) => setProjects(data))
-      .catch((err) => console.error(err));
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/rooms`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: currentUser?.userId || 1,
+                    title: newRoomName.trim(),
+                    scope: newRoomScope
+                })
+            });
+            const resData = await res.json();
+            if (res.ok && resData.rooms) {
+                setRooms(resData.rooms);
+                handleChangeRoom(resData.data);
+                setNewRoomName('');
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
-    fetch('') // TO DO fetching a user
-      .then((res) => res.json())
-      .then((data) => setUser(data.userName))
-      .catch((err) => console.error(err));
-  }, []);
+    const handleDeleteRoom = async (e, roomId) => {
+        e.stopPropagation();
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/rooms/${roomId}`, {
+                method: 'DELETE'
+            });
+            const resData = await res.json();
+            if (res.ok && resData.data) {
+                setRooms(resData.data);
+                if (currentRoom?.room_id === roomId && resData.data.length > 0) {
+                    handleChangeRoom(resData.data[0]);
+                }
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
-  // room handler
-  const handleCreateRooms = (e) => {
-    e.preventDefault();
-    fetch('', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newRoomName }),
-    })
-      .then((res) => res.json())
-      .then((data) => setRooms(data))
-      .catch((err) => console.error(err));
-  };
+    return (
+        <aside id="panel">
+            <div id="title">
+                <h1>DevRooms</h1>
+                <span className="betaBadge">GROUP 12</span>
+            </div>
 
-  // TODO "loading" on fetch
-  return (
-    <aside id="panel">
-      <div id="title">
-        <h1>DevRooms</h1>
-      </div>
-      <div id="sidebarMain">
-        <div className="section">
-          <h3>Active Projects</h3>
-        </div>
+            <div id="sidebarMain">
+                {/* Active Project Info */}
+                <div className="section">
+                    <h3>Active Project</h3>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                        Velocity Labs — DevRooms
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                        Vin Ong & Inder Grewal
+                    </div>
+                </div>
 
-        <div className="section">
-          <h3>List of Created Rooms</h3>
-          <ul id="roomList">
-            {rooms.map((room, index) => (
-              <li
-                onClick={handleChangeRoom}
-                key={index}
-                className="roomItem"
-              >
-                {room.name || room}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="section">
-          <h3>Create A New Room</h3>
-          <form onSubmit={handleCreateRooms}>
-            <input
-              type="text"
-              value={newRoomName}
-              onChange={(e) => setNewRoomName(e.target.value)}
-              placeholder="Room Name"
-            />
-            <button type="submit">Create</button>
-          </form>
-        </div>
-        <div className="section">
-          <h3>List of Projects</h3>
-          <ul>
-            {projects.map((project, index) => (
-              <li key={index}>
-                {project.name ? project.name : 'No Projects Were Found.'}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="section">
-          <h3>User Information</h3>
-          <h4>{user.userName ? user.username : 'User Not Found.'}</h4>
-        </div>
-      </div>
-    </aside>
-  );
+                {/* List of Created Rooms (Click to switch, X to delete) */}
+                <div className="section">
+                    <h3>Workspaces & Rooms ({rooms.length})</h3>
+                    <ul id="roomList">
+                        {rooms.map((room) => {
+                            const isActive = currentRoom?.room_id === room.room_id;
+                            return (
+                                <li
+                                    key={room.room_id}
+                                    onClick={() => handleChangeRoom(room)}
+                                    className={`roomItem ${isActive ? 'active' : ''}`}
+                                >
+                                    <div className="roomMeta">
+                                        <span>
+                                            {room.scope === 'SHARED' ? '🌐 ' : '🌿 '}
+                                            {room.title || room.name}
+                                        </span>
+                                        <span className="roomBranch">{room.branch}</span>
+                                    </div>
+                                    {room.room_id !== 'central' && (
+                                        <button
+                                            type="button"
+                                            className="deleteRoomBtn"
+                                            title="Delete room"
+                                            onClick={(e) => handleDeleteRoom(e, room.room_id)}
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
+
+                {/* Create A New Room Form */}
+                <div className="section">
+                    <h3>Create A New Room</h3>
+                    <form onSubmit={handleCreateRooms} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <input
+                            type="text"
+                            value={newRoomName}
+                            onChange={(e) => setNewRoomName(e.target.value)}
+                            placeholder="Feature room name..."
+                            style={{
+                                background: '#0c0e14',
+                                border: '1px solid #282d3e',
+                                color: '#fff',
+                                borderRadius: '6px',
+                                padding: '7px 9px',
+                                fontSize: '12.5px'
+                            }}
+                        />
+                        <select
+                            value={newRoomScope}
+                            onChange={(e) => setNewRoomScope(e.target.value)}
+                            style={{
+                                background: '#0c0e14',
+                                border: '1px solid #282d3e',
+                                color: '#cbd5e1',
+                                borderRadius: '6px',
+                                padding: '6px',
+                                fontSize: '12px'
+                            }}
+                        >
+                            <option value="ISOLATED">Isolated Room (Auto-Branch)</option>
+                            <option value="SHARED">Shared Context Room</option>
+                        </select>
+                        <button type="submit" className="sendBtn" style={{ width: '100%' }}>
+                            + Create Room & Branch
+                        </button>
+                    </form>
+                </div>
+
+                {/* Repository, Files & Bug/Issue Tracker Navigation */}
+                <div className="section">
+                    <h3>Repo, Files & Issues</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <button
+                            type="button"
+                            onClick={() => onOpenModal('repo')}
+                            className="actionBtn"
+                            style={{ textAlign: 'left', display: 'flex', justifyContent: 'space-between' }}
+                        >
+                            <span>📁 Repo Files & Branches</span>
+                            <span style={{ color: '#818cf8' }}>View</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpenModal('issues')}
+                            className="actionBtn"
+                            style={{ textAlign: 'left', display: 'flex', justifyContent: 'space-between' }}
+                        >
+                            <span>🐛 GitHub Issues & Bugs</span>
+                            <span style={{ color: '#6ee7b7', fontFamily: 'monospace' }}>{issuesCount}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Authenticated User Information */}
+            <div className="section" style={{ marginTop: 'auto' }}>
+                <h3>Authenticated User</h3>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                    {currentUser?.username}
+                </div>
+                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{currentUser?.role}</div>
+            </div>
+        </aside>
+    );
 }

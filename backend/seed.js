@@ -1,69 +1,90 @@
-const pg = require('pg');
-const Client = pg.Client;
+require('dotenv/config');
+const { Client } = require('pg');
 
-/**
- * These tables are for sprint 1 and are due to change
- */
-const create = `
-    CREATE TABLE IF NOT EXISTS users (
-        user_id UUID PRIMARY KEY DEFAULT get_random_uuid(),
-        username VARCHAR(100) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+const createTablesSQL = `
+  CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-    CREATE TABLE IF NOT EXISTS rooms (
-        room_id UUID PRIMARY KEY DEFAULT get_random_uuid(),
-        user_id UUID,
-        title VARCHAR(100) NOT NULL,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-    );
+  CREATE TABLE IF NOT EXISTS users (
+      user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      username VARCHAR(100) NOT NULL UNIQUE,
+      role VARCHAR(100) DEFAULT 'Developer',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
 
-    CREATE TABLE IF NOT EXISTS messages (
-        message_id UUID PRIMARY KEY DEFAULT get_random_uuid(),
-        room_id UUID,
-        poster_id UUID,
-        message TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (room_id) REFERENCES rooms(room_id),
-        FOREIGN KEY (poster_id) REFERENCES users(user_id)
-    );
+  CREATE TABLE IF NOT EXISTS rooms (
+      room_id VARCHAR(100) PRIMARY KEY,
+      user_id UUID,
+      title VARCHAR(100) NOT NULL,
+      scope VARCHAR(30) DEFAULT 'ISOLATED',
+      branch VARCHAR(100) DEFAULT 'main',
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS messages (
+      message_id VARCHAR(100) PRIMARY KEY,
+      room_id VARCHAR(100) REFERENCES rooms(room_id) ON DELETE CASCADE,
+      poster_name VARCHAR(100) NOT NULL,
+      initials VARCHAR(10) DEFAULT 'DV',
+      is_agent BOOLEAN DEFAULT FALSE,
+      message TEXT NOT NULL,
+      artifact_type VARCHAR(50),
+      artifact_data JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
 `;
 
-/**
- * Function for connecting Postgres db to create tables and seed
- */
 async function main() {
-  try {
-    console.log('Seeding...');
-    const client = new Client({
-      connectionString: process.env.DB_CONNECTION_STRING,
-    });
-    await client.connect();
-    await client.query(create);
-    const users = client.query(
-      `INSERT INTO users (username) VALUES ('test_user_one') RETURNING user_id, username;`,
+    if (!process.env.DB_CONNECTION_STRING && !process.env.DB_HOST) {
+        console.log('ℹ️ No PostgreSQL .env connection string detected. Backend will use auto-seeded store.');
+        return;
+    }
+
+    const client = new Client(
+        process.env.DB_CONNECTION_STRING
+            ? { connectionString: process.env.DB_CONNECTION_STRING }
+            : {
+                user: process.env.DB_USER || 'postgres',
+                host: process.env.DB_HOST || 'localhost',
+                database: process.env.DB_NAME || 'devrooms',
+                password: process.env.DB_PASSWORD || '',
+                port: Number(process.env.DB_PORT) || 5432
+            }
     );
-    const { userId, userName } = users[0];
-    if (userId === undefined || userName === undefined)
-      throw new Error('Could not seed into users table.');
-    const rooms = await client.query(
-      `INSERT INTO rooms (user_id, title, description) VALUES ('$1', 'Initial Room', 'Sample room description for the initial room.') RETURNING room_id;`,
-      [userId],
-    );
-    const roomId = rooms[0];
-    if (roomId === undefined)
-      throw new Error('Could not seed into rooms table.');
-    await query.query(
-      `INSERT INTO messages (room_id, poster_id, message) VALUES ('$1', '$2', 'Initial message posted in room.');`,
-      [roomId, userId],
-    );
-    await await client.end();
-    console.log('Completed Seeding.');
-  } catch (err) {
-    console.error('An error occurred while seeding the database: ', err);
-  }
+
+    try {
+        console.log('🌱 Connecting to PostgreSQL and seeding DevRooms tables...');
+        await client.connect();
+        await client.query(createTablesSQL);
+
+        const userRes = await client.query(
+            `INSERT INTO users (username, role)
+       VALUES ('Vin Ong', 'Front-End & Back-End Lead'),
+              ('Inder Grewal', 'Agentic AI & WebSocket Lead')
+       ON CONFLICT (username) DO UPDATE SET role = EXCLUDED.role
+       RETURNING user_id, username;`
+        );
+
+        const vinId = userRes.rows[0]?.user_id;
+
+        await client.query(
+            `INSERT INTO rooms (room_id, user_id, title, scope, branch, description)
+       VALUES
+         ('central', $1, 'Central', 'SHARED', 'main', 'System planning, AI summaries & Mermaid.js architecture diagrams'),
+         ('frontend', $1, 'Front-end', 'ISOLATED', 'feat/room-presence', 'Isolated feature workspace — React UI & WebSocket presence'),
+         ('backend', $1, 'Back-end', 'ISOLATED', 'feat/express-socket-api', 'Isolated feature workspace — Express REST API & PostgreSQL'),
+         ('qa', $1, 'QA & testing', 'ISOLATED', 'chore/docker-github-actions', 'Automated GitHub Actions & Docker container tests')
+       ON CONFLICT (room_id) DO NOTHING;`,
+            [vinId]
+        );
+
+        console.log('✅ Completed PostgreSQL Seeding for Velocity Labs (Group 12).');
+    } catch (err) {
+        console.error('⚠️ Seed error:', err.message);
+    } finally {
+        await client.end().catch(() => { });
+    }
 }
 
 main();
