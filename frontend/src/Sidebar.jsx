@@ -1,40 +1,60 @@
 import { useEffect, useState } from 'react';
 
-export default function Sidebar({ handleChangeRoom }) {
-  const [rooms, setRooms] = useState([]);
+export default function Sidebar({ rooms: initialRooms, handleChangeRoom }) {
+  const [rooms, setRooms] = useState(initialRooms || []);
   const [projects, setProjects] = useState([]);
-  const [user, setUser] = useState('loading...');
+  const [user, setUser] = useState('test_user_one');
   const [newRoomName, setNewRoomName] = useState('');
 
   // Fetch rooms and projects on initial mount
   useEffect(() => {
-    fetch('http://localhost:4000/api/rooms/1/messages')
-      .then((res) => res.json())
-      .then((data) => setRooms(data))
-      .catch((err) => console.error(err));
+    async function fetchSideData() {
+      try {
+        const roomResponse = await fetch('http://localhost:3000/api/rooms');
+        const roomResult = await roomResponse.json();
 
-    fetch('') // TODO create project table in db
-      .then((res) => res.json())
-      .then((data) => setProjects(data))
-      .catch((err) => console.error(err));
+        if (roomResult.data) {
+          setRooms(roomResult.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch rooms in sidebar: ', err);
+      }
+    }
 
-    fetch('') // TO DO fetching a user
-      .then((res) => res.json())
-      .then((data) => setUser(data.userName))
-      .catch((err) => console.error(err));
-  }, []);
+    if (!initialRooms || initialRooms.length === 0) {
+      fetchSideData();
+    }
+    // TODO create projects (table in db)
+    // TODO fetching diff users on auth.
+  }, [initialRooms]);
 
   // room handler
-  const handleCreateRooms = (e) => {
+  const handleCreateRooms = async (e) => {
     e.preventDefault();
-    fetch('', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newRoomName }),
-    })
-      .then((res) => res.json())
-      .then((data) => setRooms(data))
-      .catch((err) => console.error(err));
+    if (!newRoomName.trim()) return;
+
+    try {
+      const response = await fetch('http://localhost:3000/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 1,
+          title: newRoomName,
+          description: 'Room create from sidebar',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setRooms((prevRooms) => [...prevRooms, result.data[0]]);
+        setNewRoomName('');
+      } else {
+        console.error('Failed to create room:', result.message);
+      }
+    } catch (err) {
+      console.error('Error creating room: ', err);
+    }
   };
 
   // TODO "loading" on fetch
@@ -53,11 +73,11 @@ export default function Sidebar({ handleChangeRoom }) {
           <ul id="roomList">
             {rooms.map((room, index) => (
               <li
-                onClick={handleChangeRoom}
+                onClick={() => handleChangeRoom(room)}
                 key={index}
                 className="roomItem"
               >
-                {room.name || room}
+                {room.title || room}
               </li>
             ))}
           </ul>
@@ -86,7 +106,7 @@ export default function Sidebar({ handleChangeRoom }) {
         </div>
         <div className="section">
           <h3>User Information</h3>
-          <h4>{user.userName ? user.username : 'User Not Found.'}</h4>
+          <h4>{user}</h4>
         </div>
       </div>
     </aside>

@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 
-export default function RightPanel() {
-  const [activeUsers, setActiveUsers] = useState([]);
-  const [agentInfo, setAgentInfo] = useState(null);
+export default function RightPanel({ currentRoom }) {
+  const [activeUsers, setActiveUsers] = useState([
+    { id: 1, name: 'text_user_one' },
+  ]);
+  const [agentInfo, setAgentInfo] = useState({
+    name: 'DevRooms Assistant',
+    info: 'Helps analyze code, coordinate sprints, and provide context for this room.',
+  });
 
   // fetch active users list and agent information
   useEffect(() => {
-    fetch('') // TODO list of active users in room
-      .then((res) => res.json())
-      .then((data) => setActiveUsers(data))
-      .catch((err) => console.error(err));
-
-    fetch('') // TODO name of current agent
-      .then((res) => res.json())
-      .then((data) => setAgentInfo(data))
-      .catch((err) => console.error(err));
-  }, []);
+    // TODO list of active user (websocket implementation)
+    // TODO db for agents
+  }, [currentRoom]);
 
   return (
     <aside id="panel">
@@ -34,9 +32,7 @@ export default function RightPanel() {
       </div>
 
       <div className="section">
-        <h2>
-          Information about the AI agent and it's capabilities such as Tools
-        </h2>
+        <h2>Information about the AI agent and its capabilities</h2>
         <div>
           <h4>{agentInfo ? agentInfo.name : 'No Agent available'}</h4>
           <p>

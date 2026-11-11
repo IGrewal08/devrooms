@@ -1,12 +1,17 @@
-const env = require('dotenv/config');
-const express = require('express');
-const cors = require('cors');
-const pool = require('db.config.js');
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import pool from './db.config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.cors({ origin: 'http://localhost:5173' }));
+app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json({ limit: '10kb' }));
 
 /**
@@ -14,19 +19,16 @@ app.use(express.json({ limit: '10kb' }));
  */
 app.get('/api/rooms', async (req, res) => {
   try {
-    const { userId } = req.body;
-    userId = 1; // Temporary
-    const rooms = await pool.query(`SELECT * FROM rooms where user_id = $1`, [
-      userId,
-    ]);
-    if (rooms.rows === undefined) {
+    // TEMPORARY
+    const rooms = await pool.query(`SELECT * FROM rooms;`);
+    if (!rooms.rows || rooms.rows.length === 0) {
       return res
         .status(422)
         .json({ message: 'Error: No rooms were found for this user.' });
     }
     res
       .status(200)
-      .json({ data: rooms.rows, message: 'Rooms fetched successfully.' });
+      .json({ data: rooms.rows || [], message: 'Rooms fetched successfully.' });
   } catch (err) {
     console.error('Issue fetching room for this user: ', err);
     res.status(500).json({
@@ -41,12 +43,23 @@ app.get('/api/rooms', async (req, res) => {
  */
 app.post('/api/rooms', async (req, res) => {
   try {
-    const { userId, title, description } = req.body;
+    // const { userId, title, description } = req.body;
+    const { title, description } = req.body;
+
+    const users = await pool.query(`SELECT * FROM users;`);
+    if (!users.rows || users.rows.length === 0) {
+      return res
+        .status(422)
+        .json({ message: 'Error: A internal DB error occurred.' });
+    }
+
+    const userId = users.rows[0].user_id;
+
     const room = await pool.query(
-      `INSERT INTO rooms (user_id, title, description) VALUES ($1, $2, $3)`,
+      `INSERT INTO rooms (user_id, title, description) VALUES ($1, $2, $3) RETURNING *`,
       [userId, title, description],
     );
-    if (room.rows === undefined) {
+    if (!room.rows || room.rows.length === 0) {
       return res
         .status(422)
         .json({ message: 'Error: A internal DB error occurred.' });
@@ -67,13 +80,13 @@ app.post('/api/rooms', async (req, res) => {
  * Fetch messages to the corresponding room id
  */
 app.get('/api/rooms/:id/messages', async (req, res) => {
+  const roomId = req.params.id;
   try {
-    const roomId = req.params.id;
     const messages = await pool.query(
-      `SELECT * FROM messages WHERE room_id = $1 INNER JOIN users ON posts.poster_id = users.user_id`,
+      `SELECT messages.*, users.username FROM messages JOIN users ON messages.poster_id = users.user_id WHERE messages.room_id = $1`,
       [roomId],
     );
-    if (messages.rows === undefined) {
+    if (!messages.rows) {
       return res
         .status(422)
         .json({ message: 'Error: A internal DB error occurred.' });
@@ -98,9 +111,19 @@ app.get('/api/rooms/:id/messages', async (req, res) => {
 app.post('/api/rooms/:id/messages', async (req, res) => {
   try {
     const roomId = req.params.id;
-    const { userId, userMessage } = req.body;
+    //const { userId, userMessage } = req.body;
+    const { userMessage } = req.body;
+
+    const users = await pool.query(`SELECT * FROM users;`);
+    if (!users.rows || users.rows.length === 0) {
+      return res
+        .status(422)
+        .json({ message: 'Error: A internal DB error occurred.' });
+    }
+    const userId = users.rows[0].user_id;
+
     const message = await pool.query(
-      `INSERT INTO messages (room_id, poster_id, message) VALUES ($1, $2, $3)`,
+      `INSERT INTO messages (room_id, poster_id, message) VALUES ($1, $2, $3) RETURNING *`,
       [roomId, userId, userMessage],
     );
     if (message.rows === undefined) {
@@ -126,10 +149,12 @@ app.post('/api/rooms/:id/messages', async (req, res) => {
  */
 app.use((error, req, res, next) => {
   console.error(error.stack);
-  res.status(404).send(`The path: "${res.path}" was not found.`);
+  res.status(404).send(`The path: "${req.path}" was not found.`);
 });
 
-app.listen(process.env.PORT, 'localhost', (error) => {
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, 'localhost', (error) => {
   if (error) {
     throw new Error(error);
   }
