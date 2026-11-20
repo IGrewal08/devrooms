@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,10 +11,64 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new Server(httpServer);
+const PORT = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json({ limit: '10kb' }));
+
+// TODO: authenticate users once with socket connection
+io.use((socket, next) => {
+  //socket.data.userId = '';
+  next();
+});
+
+io.on('connection', (socket) => {
+  socket.on('room:join', async ({ roomId }, ack) => {
+    try {
+      // Check user membership in this room
+      const member = await pool.query(
+        `SELECT * FROM room_user WHERE user_id = $1 AND room_id = $2`,
+        [socket.data.userId, roomId],
+      );
+
+      // only respond errors and success message to the sender
+      if (!member) {
+        return ack?.({ ok: false, error: 'Access to this room denied' });
+      }
+
+      await socket.join(roomId);
+      ack?.({ ok: true, roomId });
+    } catch (err) {
+      ack?.({ ok: false, error: 'Failed to join room' });
+    }
+  });
+
+  socket.on('chat:send', async ({ roomId, message }, ack) => {
+    try {
+      const response = await pool.query(
+        `INSERT INTO message (room_id, poster_id, message) VALUES ($1, $2, $3)`[
+          (roomId, socket.data.userId, message)
+        ],
+      );
+      // emit the new message to everyone
+      io.to(roomId).emit('chat:message', response);
+      // let sender know if their message succeeded
+      ack?.({ ok: true, message: response });
+    } catch (err) {
+      ack?.({ ok: false, error: 'Failed to send message' });
+    }
+  });
+
+  socket.on('disconnect', ({ userId }, ack) => {
+    ack?.at({
+      ok: true,
+      message: `[Socket.io] user ${userId} disconnected successfully.`,
+    });
+  });
+});
 
 /**
  * Fetch rooms corresponding to this user from the database
@@ -152,11 +208,9 @@ app.use((error, req, res, next) => {
   res.status(404).send(`The path: "${req.path}" was not found.`);
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, 'localhost', (error) => {
+httpServer.listen(PORT, (error) => {
   if (error) {
     throw new Error(error);
   }
-  console.log(`Express server listening on PORT ${process.env.PORT}.`);
+  console.log(`Server listening on PORT ${PORT}.`);
 });
