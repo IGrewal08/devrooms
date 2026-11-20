@@ -3,17 +3,12 @@
   "version": "1.0.0",
   "description": "Backend for devrooms application",
   "type": "module",
-  "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
+    "install-all": "npm install && npm install --prefix api-gateway && npm install --prefix user-service && npm install --prefix room-service && npm install --prefix ai-service",
+    "start": "concurrently -n rooms,ai,users,gateway -c blue,magenta,yellow,green \"npm start --prefix user-service\" \"npm start --prefix room-service\" \"npm start --prefix ai-service\" \"npm start --prefix api-gateway\"",
     "seed": "node seed.js"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^18.0.9",
-    "express": "^5.3.0",
-    "pg": "^8.23.1",
-    "socket.io": "^4.8.4"
+    "concurrently": "^10.0.7"
   }
 }
