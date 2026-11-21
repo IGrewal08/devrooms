@@ -4,13 +4,22 @@ import { Client } from 'pg';
  * Postgres Database tables for storing crucial information over devrooms
  */
 const create = `
-    CREATE TYPE room_role AS ENUM ('OWNER', 'MEMBER');
+    DO $$ BEGIN
+      CREATE TYPE room_role AS ENUM ('OWNER', 'MEMBER');
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
 
-    CREATE TYPE job_status AS ENUM ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED');
+    DO $$ BEGIN
+      CREATE TYPE job_status AS ENUM ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED');
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
 
-    CREATE TYPE process_type AS ENUM ('AI_SUMMARY', 'AI_DIAGRAM', 'WEBSOCKET', 'CLIENT', 'SERVER');
+    DO ## BEGIN
+      CREATE TYPE process_type AS ENUM ('AI_SUMMARY', 'AI_DIAGRAM', 'WEBSOCKET', 'CLIENT', 'SERVER');
+    EXCEPTION
+      WHEN duplicate_object THEN NULL;
 
-    CREATE TABLE IF NOT EXISTS user (
+    CREATE TABLE IF NOT EXISTS "user" (
         id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid(),
         username VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
@@ -23,7 +32,7 @@ const create = `
         title VARCHAR(255) NOT NULL,
         description VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (owner_id) REFERENCES user(id) ON DELETE CASCADE
     );
 
@@ -100,50 +109,186 @@ const create = `
  * Function for connecting Postgres db to create tables and seed
  */
 async function main() {
+  const client = new Client({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST || 'localhost',
+    database: process.env.DB_NAME || 'devrooms',
+    password: process.env.DB_PASSWORD,
+    port: process.env.DB_PORT || 5432,
+  });
+
   try {
     console.log('Seeding...');
-    const client = new Client({
-      user: process.env.DB_USER,
-      host: process.env.DB_HOST || 'localhost',
-      database: process.env.DB_NAME || 'devrooms',
-      password: process.env.DB_PASSWORD,
-      port: process.env.DB_PORT || 5432,
-    });
-
     await client.connect();
+    await client.query('BEGIN');
     await client.query(create);
 
-    const userResult = await client.query(
-      `INSERT INTO user (username) VALUES ('test_user_one') RETURNING user_id, username;`,
+    // Seed into user
+    const userOneResult = await client.query(
+      `INSERT INTO "user" (username, password) VALUES ($1, $2) 
+      RETURNING id, username;`,
+      [
+        'test_user_one',
+        '$2b$10$examplehashforseeduserone0000000000000000000000000001',
+      ],
     );
 
-    const { userId, userName } = userResult.rows[0];
+    const userTwoResult = await client.query(
+      `INSERT INTO "user" (username, password)
+      VALUES ($1, $2)
+      RETURNING id, username;
+      `,
+      [
+        'test_user_two',
+        '$2b$10$examplehashforseedusertwo0000000000000000000000000002',
+      ],
+    );
 
-    if (!userId || !userName) {
+    const userOneId = userOneResult.rows[0]?.id;
+    const userTwoId = userTwoResult.rows[0]?.id;
+    if (!userOneId || !userTwoId) {
       throw new Error('Could not seed into user table.');
     }
 
-    const roomResults = await client.query(
-      `INSERT INTO room (user_id, title, description) VALUES ($1, 'Initial Room', 'Sample room description for the initial room.') RETURNING room_id;`,
-      [userId],
+    // seed into room
+    const initialRoomResult = await client.query(
+      `INSERT INTO room (owner_id, title, description) 
+      VALUES ($1, $2, '$3
+      RETURNING id;`,
+      [
+        userOneId,
+        'Initial Room',
+        'Sample room description for the initial room.',
+      ],
     );
 
-    const { roomId } = roomResults.rows[0];
+    const addRoomResult = await client.query(
+      `INSER INTO room (owner_id, title, description)
+      VALUES ($1, $2, $3)
+      RETURNING id;`,
+      [
+        userTwoId,
+        'Frontend',
+        'Frontend system design notes, sequences, and API contracts.',
+      ],
+    );
 
-    if (!roomId) {
+    const initialRoomId = initialRoomResult.rows[0]?.id;
+    const addRoomId = addRoomResult.rows[0]?.id;
+
+    if (!initialRoomId || !addRoomId) {
       throw new Error('Could not seed into room table.');
     }
 
-    await query.query(
-      `INSERT INTO message (room_id, poster_id, message) VALUES ($1, $2, 'Initial message posted in room.');`,
-      [roomId, userId],
+    // seed into membership
+    await client.query(
+      `INSERT INTO room_user (room_id, user_id, role)
+      VALUES
+        ($1, $2, 'OWNER'),
+        ($1, $3, 'MEMBER'),
+        ($4, $3, 'OWNER'),
+        ($4, $2, 'MEMBER'),
+      ON CONFLICT (room_id, user_id) DO NOTHING;`,
+      [initialRoomId, userOneId, userTwoId, addRoomId],
     );
 
-    await client.end();
+    // seed into message
+    const msgOneResult = await client.query(
+      `INSERT INTO message (room_id, poster_id, message, client_message_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id;`,
+      [
+        initialRoomId,
+        userOneId,
+        'Initial message posted in room.',
+        'client-msg-001',
+      ],
+    );
+
+    const msgTwoResult = await client.query(
+      `INSERT INTO message (room_id, poster_id, message, client_message_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id;`,
+      [
+        initialRoomId,
+        userTwoId,
+        'Hey! let`s test the AI generated summaries!',
+        'client-msg-002',
+      ],
+    );
+
+    const msgThreeResult = await client.query(
+      `INSERT INTO message (room_id, poster_id, message, client_message_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id;`,
+      [
+        addRoomId,
+        userTwoId,
+        'Lets map out our APIs for the users schema.',
+        'client-msg-003',
+      ],
+    );
+
+    const msgOneId = msgOneResult.rows[0]?.id;
+    const msgTwoId = msgTwoResult.rows[0]?.id;
+    const msgThreeId = msgThreeResult.rows[0]?.id;
+
+    // seed into summary
+    const summaryResult = await client.query(
+      `INSERT INTO summary (
+        room_id, created_by, from_message_id, to_message_id, content, status, ai_model_used, generated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 'SUCCEEDED', $6, CURRENT_TIMESTAMP)
+      RETURNING id;`,
+      [
+        initialRoomId,
+        userOneId,
+        msgOneId,
+        msgTwoId,
+        'Team kicked off the room and confirmed internal readiness for AI summaries.',
+        'Qwen3',
+      ],
+    );
+
+    const summaryId = summaryResult.rows[0]?.id;
+
+    // seed into diagram
+    const diagramResult = await client.query(
+      `INSERT INTO diagram (
+        room_id, created_by, version, mermaid_source, status, ai_model_used, generated_at
+      )
+      VALUES ($1, $2, $3, $4, 'SUCCEEDED', $5, CURRENT_TIMESTAMP)
+      RETURNING id;`,
+      [
+        addRoomId,
+        userTwoId,
+        1,
+        'flowchart LR\n  Client -->|WS| Gateway[WebSocket Server]\n  Gateway --> Queue[(Job Queue)]\n  Queue --> Worker[AI Worker]',
+        'Qwen3',
+      ],
+    );
+
+    const diagramId = diagramResult.rows[0]?.id;
+
+    // seed into process logs
+    await client.query(
+      `INSERT INTO process_log (
+        process_type, status, room_id, user_id, summary_id, diagram_id, completed_at
+      )
+      VALUES
+        ('AI_SUMMARY', 'SUCCEEDED', $1, $2, $3, NULL, CURRENT_TIMESTAMP),
+        ('AI_DIAGRAM', 'SUCCEEDED', $4, $5, NULL, $6, CURRENT_TIMESTAMP),
+        ('WEBSOCKET', 'RUNNING', $1, $2, NULL, NULL, NULL);`,
+      [initialRoomId, userOneId, summaryId, addRoomId, userTwoId, diagramId],
+    );
+
+    await client.query('COMMIT');
     console.log('Completed Seeding.');
   } catch (err) {
     console.error('An error occurred while seeding the database: ', err);
     throw err;
+  } finally {
+    await client.end().catch(() => {});
   }
 }
 
