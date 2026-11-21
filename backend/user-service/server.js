@@ -43,3 +43,70 @@ app.get('/health', healthCheck);
 app.listen(PORT, () => {
     console.log(`User Service listening on port ${PORT}`);
 });
+
+/**
+ * Hashes a plaintext password using Node's built-in scrypt with a random salt.
+ * Stored format: "<salt>:<derivedKeyHex>"
+ */
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derivedKey = crypto.scryptSync(password, salt, 64).toString('hex');
+    return `${salt}:${derivedKey}`;
+}
+
+/**
+ * Verifies a plaintext password against a stored "<salt>:<hash>" string.
+ * Falls back to direct comparison only if seeded test rows in seed.js store plaintext.
+ */
+function verifyPassword(password, storedHash) {
+    if (!storedHash) return false;
+
+    // Support salted scrypt hashes created by registerUser
+    if (storedHash.includes(':')) {
+        const [salt, key] = storedHash.split(':');
+        const derivedKey = crypto.scryptSync(password, salt, 64);
+        const keyBuffer = Buffer.from(key, 'hex');
+        return (
+            derivedKey.length === keyBuffer.length &&
+            crypto.timingSafeEqual(derivedKey, keyBuffer)
+        );
+    }
+
+    // Fallback for local dev seed data if seed.js uses plain passwords
+    return password === storedHash;
+}
+
+/**
+ * Generates a temporary placeholder token until JWT is implemented.
+ * Format: "stub-token:<userId>"
+ * TODO (JWT): Replace with jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' })
+ */
+function createStubToken(user) {
+    return `stub-token:${user.id}`;
+}
+
+/**
+ * Extracts a bearer token from the Authorization header or request body.
+ */
+function extractToken(req) {
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+        return authHeader.slice(7).trim();
+    }
+    if (req.body && typeof req.body.token === 'string') {
+        return req.body.token.trim();
+    }
+    return null;
+}
+
+/**
+ * Parses the stub token and returns the embedded user ID.
+ * TODO (JWT): Replace with jwt.verify(token, process.env.JWT_SECRET)
+ */
+function parseStubToken(token) {
+    if (!token || !token.startsWith('stub-token:')) {
+        return null;
+    }
+    const userId = token.slice('stub-token:'.length).trim();
+    return userId || null;
+}
