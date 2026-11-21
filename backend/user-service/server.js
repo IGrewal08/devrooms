@@ -262,4 +262,94 @@ async function getCurrentUser(req, res) {
 app.get('/users/me', getCurrentUser);
 
 
+/**
+ * GET /internal/users/:id
+ * Internal microservice endpoint called by room-service to look up usernames/profiles.
+ * Not intended to be exposed directly to public clients through the API Gateway.
+ */
+async function getInternalUserById(req, res) {
+    try {
+        const { id } = req.params;
 
+        if (!id) {
+            return res.status(400).json({ error: 'User ID parameter is required.' });
+        }
+
+        // Return only lightweight, non-sensitive identity fields needed by room-service
+        const query = `
+      SELECT id, username, role
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `;
+
+        const result = await pool.query(query, [id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `User with id ${id} not found.` });
+        }
+
+        return res.status(200).json({ user: result.rows[0] });
+    } catch (err) {
+        console.error('[getInternalUserById] Error:', err);
+        return res.status(500).json({ error: 'Internal server error during user lookup.' });
+    }
+}
+
+app.get('/internal/users/:id', getInternalUserById);
+
+/**
+ * POST /internal/users/verify
+ * Internal endpoint for verifying a token outside the HTTP API Gateway (e.g., Socket.IO handshake).
+ * Accepts token in `req.body.token` or `Authorization: Bearer <token>`.
+ *
+ * TODO (JWT): Replace parseStubToken(token) with jwt.verify(token, process.env.JWT_SECRET)
+ *             and handle TokenExpiredError / JsonWebTokenError cleanly.
+ */
+async function verifyInternalToken(req, res) {
+    try {
+        const token = extractToken(req);
+
+        if (!token) {
+            return res.status(400).json({
+                valid: false,
+                error: 'Token is required for verification.',
+            });
+        }
+
+        const userId = parseStubToken(token);
+        if (!userId) {
+            return res.status(401).json({
+                valid: false,
+                error: 'Invalid or malformed token.',
+            });
+        }
+
+        const query = `
+      SELECT id, username, email, role
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `;
+
+        const result = await pool.query(query, [userId]);
+        if (result.rows.length === 0) {
+            return res.status(401).json({
+                valid: false,
+                error: 'Token does not match an active user.',
+            });
+        }
+
+        return res.status(200).json({
+            valid: true,
+            user: result.rows[0],
+        });
+    } catch (err) {
+        console.error('[verifyInternalToken] Error:', err);
+        return res.status(500).json({
+            valid: false,
+            error: 'Internal server error during token verification.',
+        });
+    }
+}
+
+app.post('/internal/users/verify', verifyInternalToken);
