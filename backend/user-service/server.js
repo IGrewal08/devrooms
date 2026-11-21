@@ -110,3 +110,156 @@ function parseStubToken(token) {
     const userId = token.slice('stub-token:'.length).trim();
     return userId || null;
 }
+/**
+ * POST /auth/register
+ * Registers a new user account in PostgreSQL and returns the created profile + stub token.
+ * Expected body: { username, email, password, role? }
+ */
+async function registerUser(req, res) {
+    try {
+        const { username, email, password, role = 'member' } = req.body;
+
+        // Basic input validation
+        if (!username || !email || !password) {
+            return res.status(400).json({
+                error: 'username, email, and password are required.',
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const trimmedUsername = username.trim();
+        const passwordHash = hashPassword(password);
+
+        // VERIFY: Match column names against backend/seed.js (e.g., password_hash vs password, role)
+        const insertQuery = `
+      INSERT INTO users (username, email, password_hash, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, username, email, role, created_at
+    `;
+
+        const result = await pool.query(insertQuery, [
+            trimmedUsername,
+            normalizedEmail,
+            passwordHash,
+            role,
+        ]);
+
+        const newUser = result.rows[0];
+        const token = createStubToken(newUser); // TODO (JWT): Swap for real JWT
+
+        return res.status(201).json({
+            message: 'User registered successfully.',
+            user: newUser,
+            token,
+        });
+    } catch (err) {
+        // PostgreSQL unique_violation error code (duplicate email or username)
+        if (err.code === '23505') {
+            return res.status(409).json({
+                error: 'An account with that email or username already exists.',
+            });
+        }
+        console.error('[registerUser] Error:', err);
+        return res.status(500).json({ error: 'Internal server error during registration.' });
+    }
+}
+
+app.post('/auth/register', registerUser);
+
+/**
+ * POST /auth/login
+ * Authenticates a user by email (or username) and password.
+ * Expected body: { email, password } or { username, password }
+ */
+async function loginUser(req, res) {
+    try {
+        const { email, username, password } = req.body;
+
+        if ((!email && !username) || !password) {
+            return res.status(400).json({
+                error: 'email (or username) and password are required.',
+            });
+        }
+
+        // Allow login with either email or username for flexible frontend testing
+        const lookupValue = email ? email.trim().toLowerCase() : username.trim();
+        const lookupColumn = email ? 'email' : 'username';
+
+        // VERIFY: Match table and password column names with backend/seed.js
+        const query = `
+      SELECT id, username, email, password_hash, role, created_at
+      FROM users
+      WHERE ${lookupColumn} = $1
+      LIMIT 1
+    `;
+
+        const result = await pool.query(query, [lookupValue]);
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid credentials.' });
+        }
+
+        const userRecord = result.rows[0];
+        const isValid = verifyPassword(password, userRecord.password_hash);
+        if (!isValid) {
+            return res.status(401).json({ error: 'Invalid credentials.' });
+        }
+
+        // Never expose password_hash in API responses
+        const { password_hash, ...safeUser } = userRecord;
+        const token = createStubToken(safeUser); // TODO (JWT): Swap for real JWT
+
+        return res.status(200).json({
+            message: 'Login successful.',
+            user: safeUser,
+            token,
+        });
+    } catch (err) {
+        console.error('[loginUser] Error:', err);
+        return res.status(500).json({ error: 'Internal server error during login.' });
+    }
+}
+
+app.post('/auth/login', loginUser);
+
+/**
+ * GET /users/me
+ * Returns the authenticated user's profile.
+ * Reads user ID from API Gateway header (`x-user-id`) or stub Bearer token.
+ * TODO (JWT): Validate real JWT or rely on gateway-verified identity headers.
+ */
+async function getCurrentUser(req, res) {
+    try {
+        // Prefer gateway-forwarded user ID; fall back to stub token for direct testing
+        const gatewayUserId = req.headers['x-user-id'];
+        const token = extractToken(req);
+        const userId = gatewayUserId || parseStubToken(token);
+
+        if (!userId) {
+            return res.status(401).json({
+                error: 'Unauthorized: missing user identity header or valid token.',
+            });
+        }
+
+        const query = `
+      SELECT id, username, email, role, created_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `;
+
+        const result = await pool.query(query, [userId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        return res.status(200).json({ user: result.rows[0] });
+    } catch (err) {
+        console.error('[getCurrentUser] Error:', err);
+        return res.status(500).json({ error: 'Internal server error fetching profile.' });
+    }
+}
+
+app.get('/users/me', getCurrentUser);
+
+
+
