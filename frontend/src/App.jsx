@@ -5,41 +5,43 @@ import ChatArea from './ChatArea';
 import RightPanel from './RightPanel';
 
 function App() {
-  const [currentRoom, setCurrentRoom] = useState(null);
-  const [rooms, setRooms] = useState([]);
+    const [currentRoom, setCurrentRoom] = useState(null);
+    const [rooms, setRooms] = useState([]);
 
-  useEffect(() => {
-    async function fetchRooms() {
-      try {
-        const response = await fetch('http://localhost:3000/api/rooms');
-        const result = await response.json();
+    // Load initial rooms from backend API on mount
+    useEffect(() => {
+        async function fetchRooms() {
+            try {
+                const response = await fetch('http://localhost:3000/api/rooms');
+                const result = await response.json();
 
-        if (result.data && result.data.length > 0) {
-          setRooms(result.data);
-          setCurrentRoom(result.data[0]);
+                if (result.data && result.data.length > 0) {
+                    setRooms(result.data);
+                    setCurrentRoom(result.data[0]);
+                }
+            } catch (err) {
+                console.error('Failed to fetch rooms: ', err);
+            }
         }
-      } catch (err) {
-        console.error('Failed to fetch rooms: ', err);
-      }
-    }
-    fetchRooms();
-  }, []);
+        fetchRooms();
+    }, []);
 
-  const handleChangeRoom = (room) => {
-    setCurrentRoom(room);
-  };
+    // Update active room when a room item is clicked in Sidebar
+    const handleChangeRoom = (room) => {
+        setCurrentRoom(room);
+    };
 
-  return (
-    <div id="mainContainer">
-      <Sidebar
-        rooms={rooms}
-        currentRoom={currentRoom}
-        handleChangeRoom={handleChangeRoom}
-      />
-      <ChatArea currentRoom={currentRoom} />
-      <RightPanel />
-    </div>
-  );
+    return (
+        <div id="mainContainer">
+            <Sidebar
+                rooms={rooms}
+                currentRoom={currentRoom}
+                handleChangeRoom={handleChangeRoom}
+            />
+            <ChatArea currentRoom={currentRoom} />
+            <RightPanel currentRoom={currentRoom} />
+        </div>
+    );
 }
 
 export default App;
